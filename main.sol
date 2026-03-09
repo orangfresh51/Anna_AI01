@@ -862,3 +862,111 @@ contract Anna {
         rounds[roundId] = AnnaInferenceRound({
             promptDigest: promptDigest,
             responseRoot: bytes32(0),
+            startedAt: block.timestamp,
+            sealedAt: 0,
+            finalized: false,
+            confidenceTier: 0,
+            proposer: msg.sender
+        });
+        promptToRound[promptDigest] = roundId;
+        emit RoundOpened(roundId, promptDigest, msg.sender);
+        return roundId;
+    }
+
+    function sealRound(uint256 roundId, bytes32 responseRoot, uint8 confidenceTier) external onlyOperator {
+        AnnaInferenceRound storage r = rounds[roundId];
+        if (r.startedAt == 0) revert Anna_InvalidRoundId();
+        if (r.finalized) revert Anna_RoundNotSealed();
+        if (confidenceTier > ANNA_MAX_CONFIDENCE_TIER) revert Anna_InvalidConfidence();
+        r.responseRoot = responseRoot;
+        r.sealedAt = block.timestamp;
+        r.confidenceTier = confidenceTier;
+        emit RoundSealed(roundId, responseRoot, confidenceTier);
+    }
+
+    function finalizeRound(uint256 roundId) external onlyOperator {
+        AnnaInferenceRound storage r = rounds[roundId];
+        if (r.startedAt == 0) revert Anna_InvalidRoundId();
+        if (r.sealedAt == 0) revert Anna_RoundNotSealed();
+        r.finalized = true;
+        emit RoundFinalized(roundId);
+    }
+
+    function registerAgent(bytes32 modelFingerprint) external {
+        emit AgentRegistered(msg.sender, modelFingerprint);
+    }
+
+    function suspendAgent(address agent, bool suspended) external onlyGovernor {
+        agentsSuspended[agent] = suspended;
+    }
+
+    function consumeNonce(bytes32 nonce) external onlyOperator {
+        if (nonceUsed[nonce]) revert Anna_NonceUsed();
+        nonceUsed[nonce] = true;
+        emit NonceConsumed(nonce, msg.sender);
+    }
+
+    function scheduleUpgrade(uint256 nextVersion) external onlyGovernor {
+        nextLogicVersion = nextVersion;
+        upgradeEffectiveBlock = block.number + ANNA_UPGRADE_MIN_DELAY_BLOCKS;
+        emit UpgradeScheduled(nextVersion, upgradeEffectiveBlock);
+    }
+
+    function applyUpgrade() external onlyGovernor {
+        if (block.number < upgradeEffectiveBlock) revert Anna_EpochNotReached();
+        logicVersion = nextLogicVersion;
+        emit UpgradeApplied(logicVersion, block.number);
+    }
+
+    function enqueueTask(bytes32 taskHash, uint8 priority) external whenClawNotPaused returns (uint256 taskIndex) {
+        if (taskQueueIndex >= taskQueueCap) revert Anna_AllocOverflow();
+        taskQueue[taskQueueIndex] = AnnaTaskEntry({
+            taskHash: taskHash,
+            requester: msg.sender,
+            enqueuedBlock: block.number,
+            priority: priority,
+            executed: false,
+            executedAtBlock: 0
+        });
+        taskIndex = taskQueueIndex;
+        taskQueueIndex++;
+        taskIdToQueueIndex[taskHash] = taskIndex;
+        emit TaskEnqueued(taskIndex, taskHash, msg.sender, priority);
+        return taskIndex;
+    }
+
+    function executeTask(uint256 taskIndex) external onlyOperator nonReentrant whenClawNotPaused {
+        if (taskIndex >= taskQueueIndex) revert Anna_InvalidRoundId();
+        AnnaTaskEntry storage t = taskQueue[taskIndex];
+        if (t.executed) revert Anna_OrderAlreadySettled();
+        if (block.number < lastExecutionBlock[tx.origin] + executionCooldownBlocks) revert Anna_CooldownActive();
+        t.executed = true;
+        t.executedAtBlock = block.number;
+        executionCountByAddress[tx.origin]++;
+        totalExecutions++;
+        lastExecutionBlock[tx.origin] = block.number;
+        emit TaskExecuted(taskIndex, block.number);
+    }
+
+    function attestCapability(uint256 slotIndex, bytes32 capabilityId) external {
+        if (slotIndex >= capabilitySlots) revert Anna_InvalidStrategyId();
+        AnnaCapabilitySlot storage c = capabilityByIndex[slotIndex];
+        if (c.attestedAtBlock != 0 && !c.revoked) revert Anna_StrategySealed();
+        c.capabilityId = capabilityId;
+        c.attester = msg.sender;
+        c.attestedAtBlock = block.number;
+        c.revoked = false;
+        emit CapabilityAttested(slotIndex, capabilityId, msg.sender);
+    }
+
+    function revokeCapability(uint256 slotIndex) external onlyGovernor {
+        if (slotIndex >= capabilitySlots) revert Anna_InvalidStrategyId();
+        capabilityByIndex[slotIndex].revoked = true;
+        emit CapabilityRevoked(slotIndex, block.number);
+    }
+
+    function disburseReward(address to, uint256 amountWei) external onlyGovernor nonReentrant {
+        if (to == address(0)) revert Anna_ZeroAddress();
+        if (amountWei == 0) revert Anna_ZeroAmount();
+        (bool sent,) = to.call{value: amountWei}("");
+        if (!sent) revert Anna_TransferReverted();
