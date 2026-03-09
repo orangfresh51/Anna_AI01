@@ -1294,3 +1294,111 @@ contract Anna {
         return orderCounter;
     }
 
+    function getAllocCounter() external view returns (uint256) {
+        return allocCounter;
+    }
+
+    function getSweepCounter() external view returns (uint256) {
+        return sweepCounter;
+    }
+
+    function getPositionCounter() external view returns (uint256) {
+        return positionCounter;
+    }
+
+    function getDepositCounter() external view returns (uint256) {
+        return depositCounter;
+    }
+
+    function getWithdrawRequestCounter() external view returns (uint256) {
+        return withdrawRequestCounter;
+    }
+
+    function getRoundCounter() external view returns (uint256) {
+        return roundCounter;
+    }
+
+    function batchAllocateClaw(
+        uint256[] calldata strategyIds,
+        address[] calldata beneficiaries,
+        uint256[] calldata amountsWei
+    ) external onlyOperator whenClawNotPaused nonReentrant {
+        if (strategyIds.length != beneficiaries.length || strategyIds.length != amountsWei.length) revert Anna_PathLengthInvalid();
+        for (uint256 i = 0; i < strategyIds.length; i++) {
+            if (beneficiaries[i] == address(0)) revert Anna_ZeroAddress();
+            if (amountsWei[i] == 0) revert Anna_ZeroAmount();
+            AnnaStrategy storage s = strategies[strategyIds[i]];
+            if (!s.active) revert Anna_InvalidStrategyId();
+            if (s.sealed) revert Anna_StrategySealed();
+            if (s.allocUsedWei + amountsWei[i] > s.allocCapWei) revert Anna_AllocCapExceeded();
+            if (amountsWei[i] > ANNA_MAX_ALLOC_PER_EPOCH_WEI) revert Anna_AllocOverflow();
+            s.allocUsedWei += amountsWei[i];
+            allocCounter++;
+            (bool sent,) = beneficiaries[i].call{value: amountsWei[i]}("");
+            if (!sent) revert Anna_VaultSweepFailed();
+            emit ClawAllocation(allocCounter, beneficiaries[i], amountsWei[i], strategyIds[i], uint40(block.number));
+        }
+    }
+
+    function batchTickStrategy(uint256[] calldata strategyIds) external onlyOperator {
+        for (uint256 i = 0; i < strategyIds.length; i++) {
+            AnnaStrategy storage s = strategies[strategyIds[i]];
+            if (s.lastTickBlock == 0) revert Anna_InvalidStrategyId();
+            if (s.sealed) revert Anna_StrategySealed();
+            s.tickEpoch++;
+            s.lastTickBlock = block.number;
+            emit StrategyTick(strategyIds[i], s.tickEpoch, s.allocUsedWei, uint40(block.number));
+        }
+    }
+
+    function batchCancelOrders(uint256[] calldata orderIds) external onlyOperator {
+        for (uint256 i = 0; i < orderIds.length; i++) {
+            AnnaOrder storage o = orders[orderIds[i]];
+            if (o.placedAtBlock == 0) revert Anna_OrderMissing();
+            if (o.filled) revert Anna_OrderAlreadySettled();
+            o.cancelled = true;
+            emit OrderCancelled(orderIds[i], block.number);
+        }
+    }
+
+    function computeAllocRemaining(uint256 strategyId) external view returns (uint256) {
+        AnnaStrategy storage s = strategies[strategyId];
+        if (s.lastTickBlock == 0) revert Anna_InvalidStrategyId();
+        if (s.allocUsedWei >= s.allocCapWei) return 0;
+        return s.allocCapWei - s.allocUsedWei;
+    }
+
+    function computeWithdrawCapRemaining() external view returns (uint256) {
+        if (totalWithdrawnWei >= ANNA_WITHDRAW_CAP_WEI) return 0;
+        return ANNA_WITHDRAW_CAP_WEI - totalWithdrawnWei;
+    }
+
+    function computeCooldownBlocksRemaining(address user) external view returns (uint256) {
+        uint256 last = lastExecutionBlock[user];
+        if (last == 0) return 0;
+        if (block.number >= last + cooldownBlocks) return 0;
+        return (last + cooldownBlocks) - block.number;
+    }
+
+    function computeCanExecuteTask(address user) external view returns (bool) {
+        if (block.number < lastExecutionBlock[user] + executionCooldownBlocks) return false;
+        return true;
+    }
+
+    function computeHealthFactorBps(address user) external view returns (uint256) {
+        uint256 stake = userStakeWei[user];
+        if (stake == 0) return ANNA_HEALTH_FACTOR_MIN_BPS;
+        return ANNA_HEALTH_FACTOR_MIN_BPS;
+    }
+
+    function computeLiquidationThresholdBps() external pure returns (uint256) {
+        return ANNA_LIQUIDATION_THRESHOLD_BPS;
+    }
+
+    function advanceEpochView(uint256 strategyId) external view returns (uint256 nextTickEpoch, uint256 nextAllocUsedWei) {
+        AnnaStrategy storage s = strategies[strategyId];
+        if (s.lastTickBlock == 0) revert Anna_InvalidStrategyId();
+        nextTickEpoch = s.tickEpoch + 1;
+        nextAllocUsedWei = s.allocUsedWei;
+    }
+
