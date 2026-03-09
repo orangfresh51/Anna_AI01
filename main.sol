@@ -430,3 +430,111 @@ contract Anna {
 
     modifier whenNotPaused() {
         if (clawPaused) revert Anna_ClawPaused();
+        _;
+    }
+
+    constructor() {
+        governor = address(0x7f2e1d0c9b8a7654f3e2d1c0b9a876543210fed);
+        treasury = address(0x8e3d2c1b0a9f876543210fedcba9876543210fe0);
+        relay = address(0x9d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6);
+        attestationOracle = address(0xa1b2c3d4e5f6789012345678901234567890abcd);
+        vault = address(0xb2c3d4e5f6a789012345678901234567890abcdef);
+        operator = address(0xc3d4e5f6a7b89012345678901234567890abcdef1);
+        router = address(0xd4e5f6a7b8c9012345678901234567890abcdef12);
+        weth = address(0xe5f6a7b8c9d012345678901234567890abcdef123);
+        genesisBlock = block.number;
+        domainSeparator = bytes32(ANNA_DOMAIN_TAG);
+        taskQueueCap = ANNA_TASK_QUEUE_CAP;
+        capabilitySlots = ANNA_CAPABILITY_SLOTS;
+        executionCooldownBlocks = ANNA_EXECUTION_COOLDOWN_BLOCKS;
+        rewardBasisPoints = ANNA_REWARD_BASIS_POINTS;
+        feeBps = ANNA_DEFAULT_FEE_BPS;
+        minStakeWei = ANNA_MIN_STAKE_WEI;
+        maxPositionsPerUser = ANNA_MAX_POSITIONS_PER_USER;
+        cooldownBlocks = ANNA_COOLDOWN_BLOCKS;
+        epochLengthSecs = ANNA_CLAW_EPOCH_SECS;
+    }
+
+    function setClawPaused(bool paused) external onlyGovernor {
+        clawPaused = paused;
+        emit ClawPausedToggled(paused);
+    }
+
+    function setRouter(address newRouter) external onlyGovernor {
+        if (newRouter == address(0)) revert Anna_ZeroAddress();
+        address prev = router;
+        router = newRouter;
+        emit RouterSet(prev, newRouter);
+    }
+
+    function setOperator(address newOperator) external onlyGovernor {
+        if (newOperator == address(0)) revert Anna_ZeroAddress();
+        address prev = operator;
+        operator = newOperator;
+        emit OperatorSet(prev, newOperator);
+    }
+
+    function setVault(address newVault) external onlyGovernor {
+        if (newVault == address(0)) revert Anna_ZeroAddress();
+        address prev = vault;
+        vault = newVault;
+        emit GovernorSet(prev, newVault);
+    }
+
+    function setFeeBps(uint256 newBps) external onlyGovernor {
+        if (newBps > ANNA_BPS_BASE) revert Anna_InvalidBps();
+        uint256 prev = feeBps;
+        feeBps = newBps;
+        emit FeeBpsUpdated(prev, newBps);
+    }
+
+    function setMinStakeWei(uint256 newMin) external onlyGovernor {
+        uint256 prev = minStakeWei;
+        minStakeWei = newMin;
+        emit MinStakeUpdated(prev, newMin);
+    }
+
+    function setMaxPositionsPerUser(uint256 newMax) external onlyGovernor {
+        uint256 prev = maxPositionsPerUser;
+        maxPositionsPerUser = newMax;
+        emit MaxPositionsUpdated(prev, newMax);
+    }
+
+    function setCooldownBlocks(uint256 newCooldown) external onlyGovernor {
+        uint256 prev = cooldownBlocks;
+        cooldownBlocks = newCooldown;
+        emit CooldownUpdated(prev, newCooldown);
+    }
+
+    function setEpochLengthSecs(uint256 newLength) external onlyGovernor {
+        uint256 prev = epochLengthSecs;
+        epochLengthSecs = newLength;
+        emit EpochLengthUpdated(prev, newLength);
+    }
+
+    function placeOrder(
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint256 amountOutMin,
+        uint256 deadline
+    ) external onlyOperator whenClawNotPaused returns (uint256 orderId) {
+        if (amountIn == 0) revert Anna_ZeroAmount();
+        if (tokenIn == address(0) || tokenOut == address(0)) revert Anna_ZeroAddress();
+        if (deadline <= block.timestamp) revert Anna_DeadlinePassed();
+        orderCounter++;
+        orderId = orderCounter;
+        orders[orderId] = AnnaOrder({
+            tokenIn: tokenIn,
+            tokenOut: tokenOut,
+            amountIn: amountIn,
+            amountOutMin: amountOutMin,
+            deadline: deadline,
+            filled: false,
+            cancelled: false,
+            placedAtBlock: block.number
+        });
+        emit OrderQueued(orderId, tokenIn, tokenOut, amountIn, amountOutMin, deadline);
+        return orderId;
+    }
+
