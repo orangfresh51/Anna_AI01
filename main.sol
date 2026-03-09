@@ -1078,3 +1078,111 @@ contract Anna {
     ) external onlyOperator nonReentrant whenClawNotPaused returns (uint256 amountOut) {
         if (amountIn == 0) revert Anna_ZeroAmount();
         if (tokenIn == address(0)) revert Anna_ZeroAddress();
+        address[] memory path = new address[](2);
+        path[0] = tokenIn;
+        path[1] = weth;
+        if (IERC20Anna(tokenIn).balanceOf(vault) < amountIn) revert Anna_VaultInsufficient();
+        IERC20Anna(tokenIn).transferFrom(vault, address(this), amountIn);
+        IERC20Anna(tokenIn).approve(router, amountIn);
+        uint256 balanceBefore = address(vault).balance;
+        try IAnnaRouter(router).swapExactTokensForETH(amountIn, amountOutMin, path, vault, deadline) returns (uint256[] memory amounts) {
+            amountOut = amounts[amounts.length - 1];
+        } catch {
+            IERC20Anna(tokenIn).approve(router, 0);
+            bool refund = IERC20Anna(tokenIn).transfer(vault, amountIn);
+            if (!refund) revert Anna_TransferReverted();
+            revert Anna_RouterReverted();
+        }
+        IERC20Anna(tokenIn).approve(router, 0);
+        uint256 balanceAfter = address(vault).balance;
+        if (balanceAfter <= balanceBefore) revert Anna_TransferReverted();
+        amountOut = balanceAfter - balanceBefore;
+        return amountOut;
+    }
+
+    function executeSwapExactETHForTokens(
+        address tokenOut,
+        uint256 amountOutMin,
+        uint256 deadline
+    ) external onlyOperator payable nonReentrant whenClawNotPaused returns (uint256 amountOut) {
+        if (msg.value == 0) revert Anna_ZeroAmount();
+        if (tokenOut == address(0)) revert Anna_ZeroAddress();
+        address[] memory path = new address[](2);
+        path[0] = weth;
+        path[1] = tokenOut;
+        uint256 balanceBefore = IERC20Anna(tokenOut).balanceOf(vault);
+        try IAnnaRouter(router).swapExactETHForTokens{value: msg.value}(amountOutMin, path, vault, deadline) returns (uint256[] memory amounts) {
+            amountOut = amounts[amounts.length - 1];
+        } catch {
+            (bool sent,) = msg.sender.call{value: msg.value}("");
+            if (!sent) revert Anna_TransferReverted();
+            revert Anna_RouterReverted();
+        }
+        uint256 balanceAfter = IERC20Anna(tokenOut).balanceOf(vault);
+        if (balanceAfter <= balanceBefore) revert Anna_TransferReverted();
+        amountOut = balanceAfter - balanceBefore;
+        return amountOut;
+    }
+
+    function placeOrderMultiHop(
+        address[] calldata path,
+        uint256 amountIn,
+        uint256 amountOutMin,
+        uint256 deadline
+    ) external onlyOperator whenClawNotPaused returns (uint256 orderId) {
+        if (path.length < ANNA_MIN_PATH_LEN || path.length > ANNA_MAX_PATH_LEN) revert Anna_PathLengthInvalid();
+        if (amountIn == 0) revert Anna_ZeroAmount();
+        if (deadline <= block.timestamp) revert Anna_DeadlinePassed();
+        for (uint256 i = 0; i < path.length; i++) {
+            if (path[i] == address(0)) revert Anna_ZeroAddress();
+        }
+        orderCounter++;
+        orderId = orderCounter;
+        orders[orderId] = AnnaOrder({
+            tokenIn: path[0],
+            tokenOut: path[path.length - 1],
+            amountIn: amountIn,
+            amountOutMin: amountOutMin,
+            deadline: deadline,
+            filled: false,
+            cancelled: false,
+            placedAtBlock: block.number
+        });
+        emit OrderQueued(orderId, path[0], path[path.length - 1], amountIn, amountOutMin, deadline);
+        return orderId;
+    }
+
+    function getContractBalance() external view returns (uint256) {
+        return address(this).balance;
+    }
+
+    function getVaultBalance() external view returns (uint256) {
+        return address(vault).balance;
+    }
+
+    function getTokenBalanceInVault(address token) external view returns (uint256) {
+        if (token == address(0)) return address(vault).balance;
+        return IERC20Anna(token).balanceOf(vault);
+    }
+
+    function getTokenBalanceInContract(address token) external view returns (uint256) {
+        if (token == address(0)) return address(this).balance;
+        return IERC20Anna(token).balanceOf(address(this));
+    }
+
+    function isOrderFilled(uint256 orderId) external view returns (bool) {
+        return orders[orderId].filled;
+    }
+
+    function isOrderCancelled(uint256 orderId) external view returns (bool) {
+        return orders[orderId].cancelled;
+    }
+
+    function isStrategyActive(uint256 strategyId) external view returns (bool) {
+        return strategies[strategyId].active && !strategies[strategyId].sealed;
+    }
+
+    function isStrategySealed(uint256 strategyId) external view returns (bool) {
+        return strategies[strategyId].sealed;
+    }
+
