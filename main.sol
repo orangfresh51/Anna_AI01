@@ -1510,3 +1510,111 @@ contract Anna {
         s.allocUsedWei = 0;
     }
 
+    function getStrategyAllocUsed(uint256 strategyId) external view returns (uint256) {
+        return strategies[strategyId].allocUsedWei;
+    }
+
+    function getStrategyAllocCap(uint256 strategyId) external view returns (uint256) {
+        return strategies[strategyId].allocCapWei;
+    }
+
+    function getStrategyTickEpoch(uint256 strategyId) external view returns (uint256) {
+        return strategies[strategyId].tickEpoch;
+    }
+
+    function getStrategyLastTickBlock(uint256 strategyId) external view returns (uint256) {
+        return strategies[strategyId].lastTickBlock;
+    }
+
+    function getStrategySealed(uint256 strategyId) external view returns (bool) {
+        return strategies[strategyId].sealed;
+    }
+
+    function getStrategyActive(uint256 strategyId) external view returns (bool) {
+        return strategies[strategyId].active;
+    }
+
+    function getStrategyConfidenceTier(uint256 strategyId) external view returns (uint8) {
+        return strategies[strategyId].confidenceTier;
+    }
+
+    function getOrderTokenIn(uint256 orderId) external view returns (address) {
+        return orders[orderId].tokenIn;
+    }
+
+    function getOrderTokenOut(uint256 orderId) external view returns (address) {
+        return orders[orderId].tokenOut;
+    }
+
+    function getOrderAmountIn(uint256 orderId) external view returns (uint256) {
+        return orders[orderId].amountIn;
+    }
+
+    function getOrderAmountOutMin(uint256 orderId) external view returns (uint256) {
+        return orders[orderId].amountOutMin;
+    }
+
+    function getOrderDeadline(uint256 orderId) external view returns (uint256) {
+        return orders[orderId].deadline;
+    }
+
+    function getOrderPlacedAtBlock(uint256 orderId) external view returns (uint256) {
+        return orders[orderId].placedAtBlock;
+    }
+
+    function getPositionUser(uint256 positionId) external view returns (address) {
+        return positions[positionId].user;
+    }
+
+    function getPositionStrategyId(uint256 positionId) external view returns (uint256) {
+        return positions[positionId].strategyId;
+    }
+
+    function getPositionSizeWei(uint256 positionId) external view returns (uint256) {
+        return positions[positionId].sizeWei;
+    }
+
+    function getPositionOpenedAtBlock(uint256 positionId) external view returns (uint256) {
+        return positions[positionId].openedAtBlock;
+    }
+
+    function getPositionEntryPriceE8(uint256 positionId) external view returns (uint256) {
+        return positions[positionId].entryPriceE8;
+    }
+
+    function getPositionClosed(uint256 positionId) external view returns (bool) {
+        return positions[positionId].closed;
+    }
+
+    function getPositionRealisedWei(uint256 positionId) external view returns (uint256) {
+        return positions[positionId].realisedWei;
+    }
+
+    function getRoundPromptDigest(uint256 roundId) external view returns (bytes32) {
+        return rounds[roundId].promptDigest;
+    }
+
+    function getRoundResponseRoot(uint256 roundId) external view returns (bytes32) {
+        return rounds[roundId].responseRoot;
+    }
+
+    function getRoundStartedAt(uint256 roundId) external view returns (uint256) {
+        return rounds[roundId].startedAt;
+    }
+
+    function getRoundSealedAt(uint256 roundId) external view returns (uint256) {
+        return rounds[roundId].sealedAt;
+    }
+
+    function getRoundFinalized(uint256 roundId) external view returns (bool) {
+        return rounds[roundId].finalized;
+    }
+
+    function getRoundConfidenceTier(uint256 roundId) external view returns (uint8) {
+        return rounds[roundId].confidenceTier;
+    }
+
+    function getRoundProposer(uint256 roundId) external view returns (address) {
+        return rounds[roundId].proposer;
+    }
+
