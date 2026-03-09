@@ -1618,3 +1618,111 @@ contract Anna {
         return rounds[roundId].proposer;
     }
 
+    function getTaskTaskHash(uint256 taskIndex) external view returns (bytes32) {
+        if (taskIndex >= taskQueueIndex) revert Anna_InvalidRoundId();
+        return taskQueue[taskIndex].taskHash;
+    }
+
+    function getTaskRequester(uint256 taskIndex) external view returns (address) {
+        if (taskIndex >= taskQueueIndex) revert Anna_InvalidRoundId();
+        return taskQueue[taskIndex].requester;
+    }
+
+    function getTaskEnqueuedBlock(uint256 taskIndex) external view returns (uint256) {
+        if (taskIndex >= taskQueueIndex) revert Anna_InvalidRoundId();
+        return taskQueue[taskIndex].enqueuedBlock;
+    }
+
+    function getTaskPriority(uint256 taskIndex) external view returns (uint8) {
+        if (taskIndex >= taskQueueIndex) revert Anna_InvalidRoundId();
+        return taskQueue[taskIndex].priority;
+    }
+
+    function getTaskExecuted(uint256 taskIndex) external view returns (bool) {
+        if (taskIndex >= taskQueueIndex) revert Anna_InvalidRoundId();
+        return taskQueue[taskIndex].executed;
+    }
+
+    function getTaskExecutedAtBlock(uint256 taskIndex) external view returns (uint256) {
+        if (taskIndex >= taskQueueIndex) revert Anna_InvalidRoundId();
+        return taskQueue[taskIndex].executedAtBlock;
+    }
+
+    function getCapabilityId(uint256 slotIndex) external view returns (bytes32) {
+        if (slotIndex >= capabilitySlots) revert Anna_InvalidStrategyId();
+        return capabilityByIndex[slotIndex].capabilityId;
+    }
+
+    function getCapabilityAttester(uint256 slotIndex) external view returns (address) {
+        if (slotIndex >= capabilitySlots) revert Anna_InvalidStrategyId();
+        return capabilityByIndex[slotIndex].attester;
+    }
+
+    function getCapabilityAttestedAtBlock(uint256 slotIndex) external view returns (uint256) {
+        if (slotIndex >= capabilitySlots) revert Anna_InvalidStrategyId();
+        return capabilityByIndex[slotIndex].attestedAtBlock;
+    }
+
+    function getCapabilityRevoked(uint256 slotIndex) external view returns (bool) {
+        if (slotIndex >= capabilitySlots) revert Anna_InvalidStrategyId();
+        return capabilityByIndex[slotIndex].revoked;
+    }
+
+    function getDepositUser(uint256 depositId) external view returns (address) {
+        return deposits[depositId].user;
+    }
+
+    function getDepositAmountWei(uint256 depositId) external view returns (uint256) {
+        return deposits[depositId].amountWei;
+    }
+
+    function getDepositDepositedAtBlock(uint256 depositId) external view returns (uint256) {
+        return deposits[depositId].depositedAtBlock;
+    }
+
+    function getDepositSwept(uint256 depositId) external view returns (bool) {
+        return deposits[depositId].swept;
+    }
+
+    function getWithdrawRequestUser(uint256 requestId) external view returns (address) {
+        return withdrawRequests[requestId].user;
+    }
+
+    function getWithdrawRequestAmountWei(uint256 requestId) external view returns (uint256) {
+        return withdrawRequests[requestId].amountWei;
+    }
+
+    function getWithdrawRequestRequestedAtBlock(uint256 requestId) external view returns (uint256) {
+        return withdrawRequests[requestId].requestedAtBlock;
+    }
+
+    function getWithdrawRequestCompleted(uint256 requestId) external view returns (bool) {
+        return withdrawRequests[requestId].completed;
+    }
+
+    function getPromptToRound(bytes32 promptDigest) external view returns (uint256) {
+        return promptToRound[promptDigest];
+    }
+
+    function getExecutionCountByAddress(address user) external view returns (uint256) {
+        return executionCountByAddress[user];
+    }
+
+    function getTaskIdToQueueIndex(bytes32 taskHash) external view returns (uint256) {
+        return taskIdToQueueIndex[taskHash];
+    }
+
+    function computeFeeFromAmount(uint256 amountWei) external view returns (uint256) {
+        return (amountWei * feeBps) / ANNA_BPS_BASE;
+    }
+
+    function computeRewardFromAmount(uint256 amountWei) external view returns (uint256) {
+        return (amountWei * rewardBasisPoints) / ANNA_BPS_BASE;
+    }
+
+    function computeSlippageBounded(uint256 amountOut, uint256 maxSlippageBps) external pure returns (uint256 minOut) {
+        if (maxSlippageBps > ANNA_BPS_BASE) revert Anna_InvalidBps();
+        minOut = (amountOut * (ANNA_BPS_BASE - maxSlippageBps)) / ANNA_BPS_BASE;
+    }
+
+    function validatePathLength(uint256 pathLen) external pure returns (bool) {
