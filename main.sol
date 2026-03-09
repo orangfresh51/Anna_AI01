@@ -970,3 +970,111 @@ contract Anna {
         if (amountWei == 0) revert Anna_ZeroAmount();
         (bool sent,) = to.call{value: amountWei}("");
         if (!sent) revert Anna_TransferReverted();
+        totalRewardDisbursed += amountWei;
+        emit RewardDisbursed(to, amountWei);
+    }
+
+    function getRound(uint256 roundId) external view returns (
+        bytes32 promptDigest,
+        bytes32 responseRoot,
+        uint256 startedAt,
+        uint256 sealedAt,
+        bool finalized,
+        uint8 confidenceTier,
+        address proposer
+    ) {
+        AnnaInferenceRound storage r = rounds[roundId];
+        if (r.startedAt == 0) revert Anna_InvalidRoundId();
+        return (
+            r.promptDigest,
+            r.responseRoot,
+            r.startedAt,
+            r.sealedAt,
+            r.finalized,
+            r.confidenceTier,
+            r.proposer
+        );
+    }
+
+    function getTask(uint256 taskIndex) external view returns (
+        bytes32 taskHash,
+        address requester,
+        uint256 enqueuedBlock,
+        uint8 priority,
+        bool executed,
+        uint256 executedAtBlock
+    ) {
+        if (taskIndex >= taskQueueIndex) revert Anna_InvalidRoundId();
+        AnnaTaskEntry storage t = taskQueue[taskIndex];
+        return (
+            t.taskHash,
+            t.requester,
+            t.enqueuedBlock,
+            t.priority,
+            t.executed,
+            t.executedAtBlock
+        );
+    }
+
+    function getCapability(uint256 slotIndex) external view returns (
+        bytes32 capabilityId,
+        address attester,
+        uint256 attestedAtBlock,
+        bool revoked
+    ) {
+        if (slotIndex >= capabilitySlots) revert Anna_InvalidStrategyId();
+        AnnaCapabilitySlot storage c = capabilityByIndex[slotIndex];
+        return (
+            c.capabilityId,
+            c.attester,
+            c.attestedAtBlock,
+            c.revoked
+        );
+    }
+
+    function getDeposit(uint256 depositId) external view returns (
+        address user,
+        uint256 amountWei,
+        uint256 depositedAtBlock,
+        bool swept
+    ) {
+        AnnaDeposit storage d = deposits[depositId];
+        if (d.depositedAtBlock == 0) revert Anna_OrderMissing();
+        return (
+            d.user,
+            d.amountWei,
+            d.depositedAtBlock,
+            d.swept
+        );
+    }
+
+    function getWithdrawRequest(uint256 requestId) external view returns (
+        address user,
+        uint256 amountWei,
+        uint256 requestedAtBlock,
+        bool completed
+    ) {
+        AnnaWithdrawRequest storage r = withdrawRequests[requestId];
+        if (r.requestedAtBlock == 0) revert Anna_OrderMissing();
+        return (
+            r.user,
+            r.amountWei,
+            r.requestedAtBlock,
+            r.completed
+        );
+    }
+
+    receive() external payable {}
+
+    // -------------------------------------------------------------------------
+    // Extended swap and path helpers (multi-hop, ETH pairs)
+    // -------------------------------------------------------------------------
+
+    function executeSwapExactTokensForETH(
+        address tokenIn,
+        uint256 amountIn,
+        uint256 amountOutMin,
+        uint256 deadline
+    ) external onlyOperator nonReentrant whenClawNotPaused returns (uint256 amountOut) {
+        if (amountIn == 0) revert Anna_ZeroAmount();
+        if (tokenIn == address(0)) revert Anna_ZeroAddress();
