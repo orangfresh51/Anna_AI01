@@ -538,3 +538,111 @@ contract Anna {
         return orderId;
     }
 
+    function executeOrder(uint256 orderId) external onlyOperator nonReentrant whenClawNotPaused returns (uint256 amountOut) {
+        AnnaOrder storage o = orders[orderId];
+        if (o.placedAtBlock == 0) revert Anna_OrderMissing();
+        if (o.filled) revert Anna_OrderAlreadySettled();
+        if (o.cancelled) revert Anna_OrderCancelled();
+        if (block.timestamp > o.deadline) revert Anna_OrderCancelled();
+        address[] memory path = new address[](2);
+        path[0] = o.tokenIn;
+        path[1] = o.tokenOut;
+        IERC20Anna(o.tokenIn).transferFrom(vault, address(this), o.amountIn);
+        IERC20Anna(o.tokenIn).approve(router, o.amountIn);
+        uint256 balanceBefore = IERC20Anna(o.tokenOut).balanceOf(vault);
+        try IAnnaRouter(router).swapExactTokensForTokens(
+            o.amountIn,
+            o.amountOutMin,
+            path,
+            vault,
+            o.deadline
+        ) returns (uint256[] memory amounts) {
+            amountOut = amounts[amounts.length - 1];
+        } catch {
+            IERC20Anna(o.tokenIn).approve(router, 0);
+            bool refund = IERC20Anna(o.tokenIn).transfer(vault, o.amountIn);
+            if (!refund) revert Anna_TransferReverted();
+            revert Anna_RouterReverted();
+        }
+        IERC20Anna(o.tokenIn).approve(router, 0);
+        uint256 balanceAfter = IERC20Anna(o.tokenOut).balanceOf(vault);
+        if (balanceAfter <= balanceBefore) revert Anna_TransferReverted();
+        amountOut = balanceAfter - balanceBefore;
+        o.filled = true;
+        emit OrderFilled(orderId, amountOut, block.number);
+        return amountOut;
+    }
+
+    function cancelOrder(uint256 orderId) external onlyOperator {
+        AnnaOrder storage o = orders[orderId];
+        if (o.placedAtBlock == 0) revert Anna_OrderMissing();
+        if (o.filled) revert Anna_OrderAlreadySettled();
+        o.cancelled = true;
+        emit OrderCancelled(orderId, block.number);
+    }
+
+    function executeSwapDirect(
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint256 amountOutMin,
+        uint256 deadline
+    ) external onlyOperator nonReentrant whenClawNotPaused returns (uint256 amountOut) {
+        if (amountIn == 0) revert Anna_ZeroAmount();
+        if (tokenIn == address(0) || tokenOut == address(0)) revert Anna_ZeroAddress();
+        address[] memory path = new address[](2);
+        path[0] = tokenIn;
+        path[1] = tokenOut;
+        if (IERC20Anna(tokenIn).balanceOf(vault) < amountIn) revert Anna_VaultInsufficient();
+        IERC20Anna(tokenIn).transferFrom(vault, address(this), amountIn);
+        IERC20Anna(tokenIn).approve(router, amountIn);
+        uint256 balanceBefore = IERC20Anna(tokenOut).balanceOf(vault);
+        try IAnnaRouter(router).swapExactTokensForTokens(
+            amountIn,
+            amountOutMin,
+            path,
+            vault,
+            deadline
+        ) returns (uint256[] memory amounts) {
+            amountOut = amounts[amounts.length - 1];
+        } catch {
+            IERC20Anna(tokenIn).approve(router, 0);
+            bool refund = IERC20Anna(tokenIn).transfer(vault, amountIn);
+            if (!refund) revert Anna_TransferReverted();
+            revert Anna_RouterReverted();
+        }
+        IERC20Anna(tokenIn).approve(router, 0);
+        uint256 balanceAfter = IERC20Anna(tokenOut).balanceOf(vault);
+        if (balanceAfter <= balanceBefore) revert Anna_TransferReverted();
+        amountOut = balanceAfter - balanceBefore;
+        return amountOut;
+    }
+
+    function topTreasury() external payable {
+        if (msg.value == 0) revert Anna_ZeroAmount();
+        (bool sent,) = treasury.call{value: msg.value}("");
+        if (!sent) revert Anna_TransferReverted();
+        emit TreasuryTopped(msg.sender, msg.value);
+    }
+
+    function withdrawTreasury(uint256 amountWei, address to) external onlyTreasury nonReentrant {
+        if (to == address(0)) revert Anna_ZeroAddress();
+        if (totalWithdrawnWei + amountWei > ANNA_WITHDRAW_CAP_WEI) revert Anna_WithdrawOverCap();
+        totalWithdrawnWei += amountWei;
+        (bool sent,) = to.call{value: amountWei}("");
+        if (!sent) revert Anna_TransferReverted();
+        emit TreasuryWithdrawn(to, amountWei);
+    }
+
+    function allocateClaw(uint256 strategyId, address beneficiary, uint256 amountWei) external onlyOperator whenClawNotPaused nonReentrant {
+        if (beneficiary == address(0)) revert Anna_ZeroAddress();
+        if (amountWei == 0) revert Anna_ZeroAmount();
+        AnnaStrategy storage s = strategies[strategyId];
+        if (!s.active) revert Anna_InvalidStrategyId();
+        if (s.sealed) revert Anna_StrategySealed();
+        if (s.allocUsedWei + amountWei > s.allocCapWei) revert Anna_AllocCapExceeded();
+        if (amountWei > ANNA_MAX_ALLOC_PER_EPOCH_WEI) revert Anna_AllocOverflow();
+        s.allocUsedWei += amountWei;
+        allocCounter++;
+        (bool sent,) = beneficiary.call{value: amountWei}("");
+        if (!sent) revert Anna_VaultSweepFailed();
