@@ -322,3 +322,111 @@ struct AnnaAgentSnapshot {
     uint256 lastInferenceBlock;
     uint256 totalRounds;
     bool suspended;
+}
+
+struct AnnaTaskEntry {
+    bytes32 taskHash;
+    address requester;
+    uint256 enqueuedBlock;
+    uint8 priority;
+    bool executed;
+    uint256 executedAtBlock;
+}
+
+struct AnnaCapabilitySlot {
+    bytes32 capabilityId;
+    address attester;
+    uint256 attestedAtBlock;
+    bool revoked;
+}
+
+// -----------------------------------------------------------------------------
+// Anna (main contract)
+// -----------------------------------------------------------------------------
+
+contract Anna {
+    // Immutable (constructor-set; no readonly)
+    address public immutable governor;
+    address public immutable treasury;
+    address public immutable relay;
+    address public immutable attestationOracle;
+    address public immutable weth;
+    uint256 public immutable genesisBlock;
+    bytes32 public immutable domainSeparator;
+    uint256 public immutable taskQueueCap;
+    uint256 public immutable capabilitySlots;
+    uint256 public immutable executionCooldownBlocks;
+    uint256 public immutable rewardBasisPoints;
+
+    address public vault;
+    address public operator;
+    address public router;
+    bool public clawPaused;
+    uint256 private _reentrancyLock;
+    uint256 public orderCounter;
+    uint256 public allocCounter;
+    uint256 public sweepCounter;
+    uint256 public positionCounter;
+    uint256 public depositCounter;
+    uint256 public withdrawRequestCounter;
+    uint256 public roundCounter;
+    uint256 public taskQueueIndex;
+    uint256 public totalExecutions;
+    uint256 public totalRewardDisbursed;
+    uint256 public totalWithdrawnWei;
+    uint256 public logicVersion;
+    uint256 public nextLogicVersion;
+    uint256 public upgradeEffectiveBlock;
+    uint256 public feeBps;
+    uint256 public minStakeWei;
+    uint256 public maxPositionsPerUser;
+    uint256 public cooldownBlocks;
+    uint256 public epochLengthSecs;
+    uint256 public totalStakedWei;
+
+    mapping(uint256 => AnnaOrder) public orders;
+    mapping(uint256 => AnnaStrategy) public strategies;
+    mapping(uint256 => AnnaPosition) public positions;
+    mapping(uint256 => AnnaDeposit) public deposits;
+    mapping(uint256 => AnnaWithdrawRequest) public withdrawRequests;
+    mapping(uint256 => AnnaInferenceRound) public rounds;
+    mapping(uint256 => AnnaTaskEntry) public taskQueue;
+    mapping(uint256 => AnnaCapabilitySlot) public capabilityByIndex;
+    mapping(address => uint256) public executionCountByAddress;
+    mapping(bytes32 => uint256) public taskIdToQueueIndex;
+    mapping(address => uint256) public userPositionCount;
+    mapping(address => uint256) public userStakeWei;
+    mapping(address => uint256) public lastExecutionBlock;
+    mapping(bytes32 => bool) public nonceUsed;
+    mapping(address => bool) public agentsSuspended;
+    mapping(bytes32 => uint256) public promptToRound;
+
+    modifier onlyGovernor() {
+        if (msg.sender != governor) revert Anna_NotGovernor();
+        _;
+    }
+
+    modifier onlyOperator() {
+        if (msg.sender != operator) revert Anna_NotOperator();
+        _;
+    }
+
+    modifier onlyTreasury() {
+        if (msg.sender != treasury) revert Anna_NotTreasury();
+        _;
+    }
+
+    modifier whenClawNotPaused() {
+        if (clawPaused) revert Anna_ClawPaused();
+        _;
+    }
+
+    modifier nonReentrant() {
+        if (_reentrancyLock != 0) revert Anna_Reentrant();
+        _reentrancyLock = 1;
+        _;
+        _reentrancyLock = 0;
+    }
+
+    modifier whenNotPaused() {
+        if (clawPaused) revert Anna_ClawPaused();
