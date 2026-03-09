@@ -754,3 +754,111 @@ contract Anna {
         if (!sent) revert Anna_TransferReverted();
         emit WithdrawCompleted(r.user, r.amountWei, requestId);
     }
+
+    function recordDeposit() external payable returns (uint256 depositId) {
+        if (msg.value == 0) revert Anna_ZeroAmount();
+        depositCounter++;
+        depositId = depositCounter;
+        deposits[depositId] = AnnaDeposit({
+            user: msg.sender,
+            amountWei: msg.value,
+            depositedAtBlock: block.number,
+            swept: false
+        });
+        emit DepositSwept(msg.sender, msg.value, depositId);
+        return depositId;
+    }
+
+    function getOrder(uint256 orderId) external view returns (
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint256 amountOutMin,
+        uint256 deadline,
+        bool filled,
+        bool cancelled,
+        uint256 placedAtBlock
+    ) {
+        AnnaOrder storage o = orders[orderId];
+        if (o.placedAtBlock == 0) revert Anna_OrderMissing();
+        return (
+            o.tokenIn,
+            o.tokenOut,
+            o.amountIn,
+            o.amountOutMin,
+            o.deadline,
+            o.filled,
+            o.cancelled,
+            o.placedAtBlock
+        );
+    }
+
+    function getStrategy(uint256 strategyId) external view returns (
+        uint256 allocCapWei,
+        uint256 allocUsedWei,
+        uint256 tickEpoch,
+        uint256 lastTickBlock,
+        bool sealed,
+        bool active,
+        uint8 confidenceTier
+    ) {
+        AnnaStrategy storage s = strategies[strategyId];
+        if (s.lastTickBlock == 0) revert Anna_InvalidStrategyId();
+        return (
+            s.allocCapWei,
+            s.allocUsedWei,
+            s.tickEpoch,
+            s.lastTickBlock,
+            s.sealed,
+            s.active,
+            s.confidenceTier
+        );
+    }
+
+    function getPosition(uint256 positionId) external view returns (
+        address user,
+        uint256 strategyId,
+        uint256 sizeWei,
+        uint256 openedAtBlock,
+        uint256 entryPriceE8,
+        bool closed,
+        uint256 realisedWei
+    ) {
+        AnnaPosition storage p = positions[positionId];
+        if (p.openedAtBlock == 0) revert Anna_PositionNotFound();
+        return (
+            p.user,
+            p.strategyId,
+            p.sizeWei,
+            p.openedAtBlock,
+            p.entryPriceE8,
+            p.closed,
+            p.realisedWei
+        );
+    }
+
+    function getOrderCount() external view returns (uint256) {
+        return orderCounter;
+    }
+
+    function getTotalWithdrawnWei() external view returns (uint256) {
+        return totalWithdrawnWei;
+    }
+
+    function getTotalStakedWei() external view returns (uint256) {
+        return totalStakedWei;
+    }
+
+    function withdrawStuckToken(address token, address to, uint256 amount) external onlyGovernor {
+        if (to == address(0)) revert Anna_ZeroAddress();
+        bool ok = IERC20Anna(token).transfer(to, amount);
+        if (!ok) revert Anna_TransferReverted();
+    }
+
+    function openRound(bytes32 promptDigest) external whenClawNotPaused returns (uint256 roundId) {
+        if (promptToRound[promptDigest] != 0) revert Anna_DuplicateCommit();
+        roundCounter++;
+        roundId = roundCounter;
+        rounds[roundId] = AnnaInferenceRound({
+            promptDigest: promptDigest,
+            responseRoot: bytes32(0),
