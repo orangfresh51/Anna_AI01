@@ -646,3 +646,111 @@ contract Anna {
         allocCounter++;
         (bool sent,) = beneficiary.call{value: amountWei}("");
         if (!sent) revert Anna_VaultSweepFailed();
+        emit ClawAllocation(allocCounter, beneficiary, amountWei, strategyId, uint40(block.number));
+    }
+
+    function registerStrategy(uint256 strategyId, uint256 allocCapWei) external onlyGovernor {
+        if (strategies[strategyId].lastTickBlock != 0) revert Anna_InvalidStrategyId();
+        strategies[strategyId] = AnnaStrategy({
+            allocCapWei: allocCapWei,
+            allocUsedWei: 0,
+            tickEpoch: 0,
+            lastTickBlock: block.number,
+            sealed: false,
+            active: true,
+            confidenceTier: 0
+        });
+    }
+
+    function sealStrategy(uint256 strategyId) external onlyGovernor {
+        AnnaStrategy storage s = strategies[strategyId];
+        if (s.lastTickBlock == 0) revert Anna_InvalidStrategyId();
+        s.sealed = true;
+        emit StrategyTick(strategyId, s.tickEpoch, s.allocUsedWei, uint40(block.number));
+    }
+
+    function tickStrategy(uint256 strategyId) external onlyOperator {
+        AnnaStrategy storage s = strategies[strategyId];
+        if (s.lastTickBlock == 0) revert Anna_InvalidStrategyId();
+        if (s.sealed) revert Anna_StrategySealed();
+        s.tickEpoch++;
+        s.lastTickBlock = block.number;
+        emit StrategyTick(strategyId, s.tickEpoch, s.allocUsedWei, uint40(block.number));
+    }
+
+    function sweepVault(uint256 amountWei) external onlyOperator nonReentrant whenClawNotPaused {
+        if (amountWei == 0) revert Anna_ZeroAmount();
+        if (address(this).balance < amountWei) revert Anna_VaultInsufficient();
+        sweepCounter++;
+        (bool sent,) = vault.call{value: amountWei}("");
+        if (!sent) revert Anna_VaultSweepFailed();
+        emit VaultSweep(msg.sender, amountWei, sweepCounter, uint40(block.number));
+    }
+
+    function openPosition(uint256 strategyId, uint256 sizeWei) external whenClawNotPaused nonReentrant returns (uint256 positionId) {
+        if (userStakeWei[msg.sender] < minStakeWei) revert Anna_StakeTooLow();
+        if (agentsSuspended[msg.sender]) revert Anna_AgentSuspended();
+        if (userPositionCount[msg.sender] >= maxPositionsPerUser) revert Anna_MaxPositionsReached();
+        AnnaStrategy storage s = strategies[strategyId];
+        if (!s.active || s.lastTickBlock == 0) revert Anna_InvalidStrategyId();
+        if (sizeWei == 0) revert Anna_InvalidPositionSize();
+        positionCounter++;
+        positionId = positionCounter;
+        positions[positionId] = AnnaPosition({
+            user: msg.sender,
+            strategyId: strategyId,
+            sizeWei: sizeWei,
+            openedAtBlock: block.number,
+            entryPriceE8: 0,
+            closed: false,
+            realisedWei: 0
+        });
+        userPositionCount[msg.sender]++;
+        emit PositionOpened(msg.sender, positionId, sizeWei, strategyId);
+        return positionId;
+    }
+
+    function closePosition(uint256 positionId, uint256 realisedWei) external nonReentrant {
+        AnnaPosition storage p = positions[positionId];
+        if (p.openedAtBlock == 0) revert Anna_PositionNotFound();
+        if (p.user != msg.sender && msg.sender != operator) revert Anna_ClawDenied();
+        if (p.closed) revert Anna_OrderAlreadySettled();
+        p.closed = true;
+        p.realisedWei = realisedWei;
+        userPositionCount[p.user]--;
+        emit PositionClosed(p.user, positionId, realisedWei);
+    }
+
+    function depositStake() external payable {
+        if (msg.value == 0) revert Anna_ZeroAmount();
+        userStakeWei[msg.sender] += msg.value;
+        totalStakedWei += msg.value;
+        emit StakeDeposited(msg.sender, msg.value);
+    }
+
+    function requestWithdrawStake(uint256 amountWei) external {
+        if (amountWei == 0) revert Anna_ZeroAmount();
+        if (userStakeWei[msg.sender] < amountWei) revert Anna_VaultInsufficient();
+        if (block.number < lastExecutionBlock[msg.sender] + cooldownBlocks) revert Anna_CooldownActive();
+        withdrawRequestCounter++;
+        withdrawRequests[withdrawRequestCounter] = AnnaWithdrawRequest({
+            user: msg.sender,
+            amountWei: amountWei,
+            requestedAtBlock: block.number,
+            completed: false
+        });
+        emit WithdrawRequested(msg.sender, amountWei, withdrawRequestCounter);
+    }
+
+    function completeWithdrawRequest(uint256 requestId) external onlyOperator nonReentrant {
+        AnnaWithdrawRequest storage r = withdrawRequests[requestId];
+        if (r.requestedAtBlock == 0) revert Anna_OrderMissing();
+        if (r.completed) revert Anna_OrderAlreadySettled();
+        if (userStakeWei[r.user] < r.amountWei) revert Anna_VaultInsufficient();
+        r.completed = true;
+        userStakeWei[r.user] -= r.amountWei;
+        totalStakedWei -= r.amountWei;
+        (bool sent,) = r.user.call{value: r.amountWei}("");
+        if (!sent) revert Anna_TransferReverted();
+        emit WithdrawCompleted(r.user, r.amountWei, requestId);
+    }
