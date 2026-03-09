@@ -1726,3 +1726,108 @@ contract Anna {
     }
 
     function validatePathLength(uint256 pathLen) external pure returns (bool) {
+        return pathLen >= ANNA_MIN_PATH_LEN && pathLen <= ANNA_MAX_PATH_LEN;
+    }
+
+    function validateBps(uint256 bps) external pure returns (bool) {
+        return bps <= ANNA_BPS_BASE;
+    }
+
+    function validateConfidenceTier(uint8 tier) external pure returns (bool) {
+        return tier <= ANNA_MAX_CONFIDENCE_TIER;
+    }
+
+    function validateOrderDeadline(uint256 orderId) external view returns (bool) {
+        return block.timestamp <= orders[orderId].deadline;
+    }
+
+    function validatePositionOpen(address user) external view returns (bool) {
+        if (userStakeWei[user] < minStakeWei) return false;
+        if (agentsSuspended[user]) return false;
+        if (userPositionCount[user] >= maxPositionsPerUser) return false;
+        return true;
+    }
+
+    function validateWithdrawCap(uint256 additionalWei) external view returns (bool) {
+        return totalWithdrawnWei + additionalWei <= ANNA_WITHDRAW_CAP_WEI;
+    }
+
+    function hashOrder(uint256 orderId) external view returns (bytes32) {
+        AnnaOrder storage o = orders[orderId];
+        if (o.placedAtBlock == 0) revert Anna_OrderMissing();
+        return keccak256(abi.encodePacked(
+            o.tokenIn,
+            o.tokenOut,
+            o.amountIn,
+            o.amountOutMin,
+            o.deadline,
+            o.placedAtBlock
+        ));
+    }
+
+    function hashStrategy(uint256 strategyId) external view returns (bytes32) {
+        AnnaStrategy storage s = strategies[strategyId];
+        if (s.lastTickBlock == 0) revert Anna_InvalidStrategyId();
+        return keccak256(abi.encodePacked(
+            s.allocCapWei,
+            s.allocUsedWei,
+            s.tickEpoch,
+            s.lastTickBlock,
+            s.sealed,
+            s.active,
+            s.confidenceTier
+        ));
+    }
+
+    function hashPosition(uint256 positionId) external view returns (bytes32) {
+        AnnaPosition storage p = positions[positionId];
+        if (p.openedAtBlock == 0) revert Anna_PositionNotFound();
+        return keccak256(abi.encodePacked(
+            p.user,
+            p.strategyId,
+            p.sizeWei,
+            p.openedAtBlock,
+            p.entryPriceE8,
+            p.closed,
+            p.realisedWei
+        ));
+    }
+
+    function hashRound(uint256 roundId) external view returns (bytes32) {
+        AnnaInferenceRound storage r = rounds[roundId];
+        if (r.startedAt == 0) revert Anna_InvalidRoundId();
+        return keccak256(abi.encodePacked(
+            r.promptDigest,
+            r.responseRoot,
+            r.startedAt,
+            r.sealedAt,
+            r.finalized,
+            r.confidenceTier,
+            r.proposer
+        ));
+    }
+
+    function hashTask(uint256 taskIndex) external view returns (bytes32) {
+        if (taskIndex >= taskQueueIndex) revert Anna_InvalidRoundId();
+        AnnaTaskEntry storage t = taskQueue[taskIndex];
+        return keccak256(abi.encodePacked(
+            t.taskHash,
+            t.requester,
+            t.enqueuedBlock,
+            t.priority,
+            t.executed,
+            t.executedAtBlock
+        ));
+    }
+
+    function hashCapability(uint256 slotIndex) external view returns (bytes32) {
+        if (slotIndex >= capabilitySlots) revert Anna_InvalidStrategyId();
+        AnnaCapabilitySlot storage c = capabilityByIndex[slotIndex];
+        return keccak256(abi.encodePacked(
+            c.capabilityId,
+            c.attester,
+            c.attestedAtBlock,
+            c.revoked
+        ));
+    }
+}
