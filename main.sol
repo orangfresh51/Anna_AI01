@@ -1402,3 +1402,111 @@ contract Anna {
         nextAllocUsedWei = s.allocUsedWei;
     }
 
+    function getConstants() external pure returns (
+        uint256 bpsBase,
+        uint256 maxSlippageBps,
+        uint256 minPathLen,
+        uint256 maxPathLen,
+        uint256 clawEpochSecs,
+        uint256 maxAllocPerEpochWei,
+        uint256 withdrawCapWei,
+        uint256 minStakeWeiConst,
+        uint256 maxPositionsPerUserConst,
+        uint256 cooldownBlocksConst,
+        uint256 maxPayloadBytes,
+        uint256 upgradeMinDelayBlocks,
+        uint256 defaultFeeBps,
+        uint256 defaultRewardBps,
+        uint256 liquidationThresholdBps,
+        uint256 healthFactorMinBps,
+        uint256 roundMinDuration,
+        uint256 maxConfidenceTier,
+        uint256 taskQueueCapConst,
+        uint256 capabilitySlotsConst,
+        uint256 executionCooldownBlocksConst,
+        uint256 rewardBasisPointsConst
+    ) {
+        bpsBase = ANNA_BPS_BASE;
+        maxSlippageBps = ANNA_MAX_SLIPPAGE_BPS;
+        minPathLen = ANNA_MIN_PATH_LEN;
+        maxPathLen = ANNA_MAX_PATH_LEN;
+        clawEpochSecs = ANNA_CLAW_EPOCH_SECS;
+        maxAllocPerEpochWei = ANNA_MAX_ALLOC_PER_EPOCH_WEI;
+        withdrawCapWei = ANNA_WITHDRAW_CAP_WEI;
+        minStakeWeiConst = ANNA_MIN_STAKE_WEI;
+        maxPositionsPerUserConst = ANNA_MAX_POSITIONS_PER_USER;
+        cooldownBlocksConst = ANNA_COOLDOWN_BLOCKS;
+        maxPayloadBytes = ANNA_MAX_PAYLOAD_BYTES;
+        upgradeMinDelayBlocks = ANNA_UPGRADE_MIN_DELAY_BLOCKS;
+        defaultFeeBps = ANNA_DEFAULT_FEE_BPS;
+        defaultRewardBps = ANNA_DEFAULT_REWARD_BPS;
+        liquidationThresholdBps = ANNA_LIQUIDATION_THRESHOLD_BPS;
+        healthFactorMinBps = ANNA_HEALTH_FACTOR_MIN_BPS;
+        roundMinDuration = ANNA_ROUND_MIN_DURATION;
+        maxConfidenceTier = ANNA_MAX_CONFIDENCE_TIER;
+        taskQueueCapConst = ANNA_TASK_QUEUE_CAP;
+        capabilitySlotsConst = ANNA_CAPABILITY_SLOTS;
+        executionCooldownBlocksConst = ANNA_EXECUTION_COOLDOWN_BLOCKS;
+        rewardBasisPointsConst = ANNA_REWARD_BASIS_POINTS;
+    }
+
+    function sweepDeposit(uint256 depositId) external onlyOperator nonReentrant {
+        AnnaDeposit storage d = deposits[depositId];
+        if (d.depositedAtBlock == 0) revert Anna_OrderMissing();
+        if (d.swept) revert Anna_OrderAlreadySettled();
+        d.swept = true;
+        (bool sent,) = vault.call{value: d.amountWei}("");
+        if (!sent) revert Anna_VaultSweepFailed();
+    }
+
+    function collectFee(address token, address to, uint256 amount) external onlyGovernor nonReentrant {
+        if (to == address(0)) revert Anna_ZeroAddress();
+        if (token == address(0)) {
+            if (amount > address(this).balance) revert Anna_VaultInsufficient();
+            (bool sent,) = to.call{value: amount}("");
+            if (!sent) revert Anna_TransferReverted();
+        } else {
+            uint256 bal = IERC20Anna(token).balanceOf(address(this));
+            if (amount > bal) revert Anna_VaultInsufficient();
+            bool ok = IERC20Anna(token).transfer(to, amount);
+            if (!ok) revert Anna_TransferReverted();
+        }
+        emit FeeCollected(token, amount, to);
+    }
+
+    function liquidatePosition(uint256 positionId, uint256 liquidatedWei) external onlyOperator nonReentrant {
+        AnnaPosition storage p = positions[positionId];
+        if (p.openedAtBlock == 0) revert Anna_PositionNotFound();
+        if (p.closed) revert Anna_OrderAlreadySettled();
+        p.closed = true;
+        p.realisedWei = liquidatedWei;
+        userPositionCount[p.user]--;
+        emit LiquidationExecuted(p.user, positionId, liquidatedWei);
+    }
+
+    function updatePositionEntryPrice(uint256 positionId, uint256 entryPriceE8) external onlyOperator {
+        AnnaPosition storage p = positions[positionId];
+        if (p.openedAtBlock == 0) revert Anna_PositionNotFound();
+        if (p.closed) revert Anna_OrderAlreadySettled();
+        p.entryPriceE8 = entryPriceE8;
+    }
+
+    function setStrategyActive(uint256 strategyId, bool active) external onlyGovernor {
+        AnnaStrategy storage s = strategies[strategyId];
+        if (s.lastTickBlock == 0) revert Anna_InvalidStrategyId();
+        s.active = active;
+    }
+
+    function setStrategyConfidenceTier(uint256 strategyId, uint8 tier) external onlyGovernor {
+        if (tier > ANNA_MAX_CONFIDENCE_TIER) revert Anna_InvalidConfidence();
+        AnnaStrategy storage s = strategies[strategyId];
+        if (s.lastTickBlock == 0) revert Anna_InvalidStrategyId();
+        s.confidenceTier = tier;
+    }
+
+    function resetStrategyAllocUsed(uint256 strategyId) external onlyGovernor {
+        AnnaStrategy storage s = strategies[strategyId];
+        if (s.lastTickBlock == 0) revert Anna_InvalidStrategyId();
+        s.allocUsedWei = 0;
+    }
+
